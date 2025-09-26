@@ -1,0 +1,169 @@
+substitutions:
+  name: "garage-filter"
+  friendly_name: "Garage Filter"
+
+esphome:
+  name: "${name}"
+  friendly_name: "${friendly_name}"
+  project:
+    name: "samuelkadolph.${name}"
+    version: "0.1"
+
+esp32:
+  variant: esp32s3
+  framework:
+    type: esp-idf
+
+logger:
+  level: DEBUG
+
+ota:
+- platform: esphome
+  password: !secret ota_password
+
+wifi:
+  ssid: !secret kadolph_devices_ssid
+  password: !secret kadolph_devices_pass
+
+  ap:
+    ssid: "IR Test"
+    password: !secret fallback_ap_pass
+
+captive_portal:
+
+api:
+  encryption:
+    key: !secret garage_filter_key
+
+globals:
+- id: previous_speed
+  type: int
+  initial_value: "1"
+  restore_value: true
+- id: speed_direction
+  type: int
+  initial_value: "0"
+  restore_value: true
+
+binary_sensor:
+- platform: gpio
+  name: "Button"
+  entity_category: diagnostic
+  pin:
+    inverted: true
+    number: GPIO00
+
+button:
+- platform: template
+  id: remote_off
+  name: "Remote OFF"
+  entity_category: diagnostic
+  on_press:
+  - script.execute: ir_send_off
+
+- platform: template
+  id: remote_timer
+  name: "Remote TIMER"
+  entity_category: diagnostic
+  on_press:
+  - script.execute: ir_send_timer
+
+- platform: template
+  id: remote_on_speed
+  name: "Remote ON/SPEED"
+  entity_category: diagnostic
+  on_press:
+  - script.execute: ir_send_on_speed
+
+fan:
+- platform: template
+  name: None
+
+  restore_mode: RESTORE_DEFAULT_OFF
+  speed_count: 3
+
+  on_turn_off:
+  - logger.log: { level: INFO, format: "Fan turned off" }
+  - script.execute: ir_send_off
+  - lambda: id(speed_direction) = 0;
+
+  on_turn_on:
+  - logger.log: { level: INFO, format: "Fan turned on" }
+  - script.execute: ir_send_on_speed
+
+  on_speed_set:
+  - logger.log: { level: INFO, format: "Fan speed set to %d", args: [x] }
+  - lambda: |-
+      static int matrix[2][3][3] = { { { 0x00, 0x11, 0x12 }, { 0x01, 0x00, 0x13 }, { 0x02, 0x01, 0x00 } }, { { 0x00, 0x01, 0x02 }, { 0x13, 0x00, 0x01 }, { 0x12, 0x11, 0x00} } };
+
+      auto count = matrix[id(speed_direction)][id(previous_speed) - 1][x - 1];
+      if ((count & 0x10) == 0x10) {
+        count -= 0x10;
+        ESP_LOGD("main", "dir=%d flip=1 prev=%d speed=%d count=%d", id(speed_direction), id(previous_speed), x, count);
+        id(speed_direction) = !id(speed_direction);
+      } else {
+        ESP_LOGD("main", "dir=%d flip=0 prev=%d speed=%d count=%d", id(speed_direction), id(previous_speed), x, count);
+      }
+
+      id(ir_send_multiple_on_speed)->execute(count);
+      id(previous_speed) = x;
+
+remote_transmitter:
+  carrier_duty_percent: 50%
+  pin: GPIO07
+
+script:
+- id: ir_send_off
+  then:
+  - remote_transmitter.transmit_nec:
+      address: 0xFF00
+      command: 0x6798
+      command_repeats: 1
+
+- id: ir_send_timer
+  then:
+  - remote_transmitter.transmit_nec:
+      address: 0xFF00
+      command: 0xC738
+      command_repeats: 1
+
+- id: ir_send_on_speed
+  then:
+  - remote_transmitter.transmit_nec:
+      address: 0xFF00
+      command: 0xFD02
+      command_repeats: 1
+
+- id: ir_send_multiple_on_speed
+  parameters:
+    count: int
+  then:
+  - remote_transmitter.transmit_nec:
+      address: 0xFF00
+      command: 0xFD02
+      command_repeats: 1
+      repeat:
+        times: !lambda return count;
+        wait_time: 50ms
+
+sensor:
+- platform: wifi_signal
+  name: "Signal Strength"
+  entity_category: diagnostic
+  filters:
+  - sliding_window_moving_average:
+      window_size: 4
+      send_every: 4
+
+- platform: uptime
+  name: "Uptime"
+  entity_category: diagnostic
+
+text_sensor:
+- platform: wifi_info
+  mac_address:
+    name: "MAC Address"
+    entity_category: diagnostic
+  ip_address:
+    name: "IP Address"
+    entity_category: diagnostic
