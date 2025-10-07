@@ -26,7 +26,7 @@ wifi:
   password: !secret kadolph_devices_pass
 
   ap:
-    ssid: "IR Test"
+    ssid: "${friendly_name}"
     password: !secret fallback_ap_pass
 
 captive_portal:
