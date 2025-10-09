@@ -1,0 +1,67 @@
+substitutions:
+  name: "esp32c6-test"
+  friendly_name: "ESP32C6 Test"
+
+esphome:
+  name: "${name}"
+  friendly_name: "${friendly_name}"
+  project:
+    name: "samuelkadolph.${name}"
+    version: "0.1"
+
+esp32:
+  variant: esp32c6
+  framework:
+    type: esp-idf
+
+logger:
+  level: DEBUG
+
+ota:
+- platform: esphome
+  password: !secret ota_password
+
+wifi:
+  ssid: !secret kadolph_devices_ssid
+  password: !secret kadolph_devices_pass
+
+  ap:
+    ssid: "${friendly_name}"
+    password: !secret fallback_ap_pass
+
+captive_portal:
+
+api:
+  encryption:
+    key: !secret esp32c6_test_key
+
+light:
+- platform: esp32_rmt_led_strip
+  id: status
+  name: "Status LED"
+  chipset: WS2812
+  num_leds: 1
+  pin: GPIO8
+  rgb_order: RGB
+
+sensor:
+- platform: wifi_signal
+  name: "Signal Strength"
+  entity_category: diagnostic
+  filters:
+  - sliding_window_moving_average:
+      window_size: 4
+      send_every: 4
+
+- platform: uptime
+  name: "Uptime"
+  entity_category: diagnostic
+
+text_sensor:
+- platform: wifi_info
+  mac_address:
+    name: "MAC Address"
+    entity_category: diagnostic
+  ip_address:
+    name: "IP Address"
+    entity_category: diagnostic
