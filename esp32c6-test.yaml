@@ -35,13 +35,30 @@ api:
   encryption:
     key: !secret esp32c6_test_key
 
+binary_sensor:
+- platform: gpio
+  name: "Button"
+  entity_category: diagnostic
+  pin:
+    ignore_strapping_warning: true
+    inverted: true
+    number: GPIO09
+
+button:
+- platform: restart
+  name: "Restart"
+  entity_category: diagnostic
+
 light:
 - platform: esp32_rmt_led_strip
-  id: status
   name: "Status LED"
+  entity_category: diagnostic
   chipset: WS2812
+  default_transition_length: 0s
   num_leds: 1
-  pin: GPIO8
+  pin:
+    ignore_strapping_warning: true
+    number: GPIO08
   rgb_order: RGB
 
 sensor:
@@ -52,7 +69,6 @@ sensor:
   - sliding_window_moving_average:
       window_size: 4
       send_every: 4
-
 - platform: uptime
   name: "Uptime"
   entity_category: diagnostic
