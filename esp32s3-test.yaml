@@ -57,6 +57,7 @@ light:
   default_transition_length: 0s
   num_leds: 1
   pin: GPIO21
+  restore_mode: RESTORE_AND_OFF
   rgb_order: RGB
 
 sensor:

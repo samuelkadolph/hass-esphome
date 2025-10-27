@@ -59,6 +59,7 @@ light:
   pin:
     ignore_strapping_warning: true
     number: GPIO08
+  restore_mode: RESTORE_AND_OFF
   rgb_order: RGB
 
 sensor:
