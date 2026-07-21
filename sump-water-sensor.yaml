@@ -1,0 +1,173 @@
+substitutions:
+  name: sump-water-sensor
+  friendly_name: Sump Water Sensor
+
+  logging: INFO
+
+  reading_alpha: 0.50f
+  reading_publish_delta: 0.002f
+  reading_interval: 500ms
+  reading_trigger_pulse: 2ms
+
+  sensor_rx_pin: GPIO01
+  sensor_tx_pin: GPIO02
+  sensor_baud: 9600
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  project:
+    name: samuelkadolph.${name}
+    version: "0.1"
+
+esp32:
+  variant: esp32s3
+  framework:
+    type: esp-idf
+
+logger:
+  level: ${logging}
+
+ota:
+- platform: esphome
+
+wifi:
+  ssid: !secret kadolph_devices_ssid
+  password: !secret kadolph_devices_pass
+
+  ap:
+    ssid: ${friendly_name}
+    password: !secret fallback_ap_pass
+
+captive_portal:
+
+api:
+
+globals:
+- id: water_level
+  type: float
+- id: water_level_published
+  type: float
+
+binary_sensor:
+- platform: gpio
+  name: Button
+  entity_category: diagnostic
+  disabled_by_default: true
+  pin:
+    number: GPIO00
+    inverted: true
+    ignore_strapping_warning: true
+
+button:
+- platform: restart
+  name: Restart
+  entity_category: diagnostic
+
+interval:
+- interval: ${reading_interval}
+  then:
+  - script.execute: trigger_reading
+
+light:
+- platform: esp32_rmt_led_strip
+  name: Status LED
+  entity_category: diagnostic
+  chipset: WS2812
+  default_transition_length: 0s
+  disabled_by_default: true
+  num_leds: 1
+  pin: GPIO21
+  restore_mode: RESTORE_AND_OFF
+  rgb_order: RGB
+
+number:
+- platform: template
+  id: calibration
+  name: Calibration
+  entity_category: config
+  device_class: distance
+  disabled_by_default: true
+  initial_value: 0.0
+  max_value: 100
+  min_value: -100
+  optimistic: true
+  restore_value: true
+  step: 0.1
+  unit_of_measurement: cm
+
+output:
+- platform: gpio
+  id: sensor_tx
+  pin:
+    number: ${sensor_tx_pin}
+    inverted: true
+
+script:
+- id: trigger_reading
+  then:
+  - output.turn_on: sensor_tx
+  - delay: ${reading_trigger_pulse}
+  - output.turn_off: sensor_tx
+
+sensor:
+- platform: template
+  id: water_level_sensor
+  name: Water Level
+  accuracy_decimals: 3
+  device_class: distance
+  state_class: measurement
+  unit_of_measurement: m
+
+- platform: wifi_signal
+  name: Signal Strength
+  entity_category: diagnostic
+  filters:
+  - sliding_window_moving_average:
+      window_size: 4
+      send_every: 4
+
+- platform: uptime
+  name: Uptime
+  entity_category: diagnostic
+
+text_sensor:
+- platform: wifi_info
+  mac_address:
+    name: MAC Address
+    entity_category: diagnostic
+  ip_address:
+    name: IP Address
+    entity_category: diagnostic
+
+uart:
+  rx_pin: ${sensor_rx_pin}
+  baud_rate: ${sensor_baud}
+  debug:
+    direction: RX
+    dummy_receiver: true
+    after:
+      bytes: 4
+    sequence:
+    - lambda: |-
+        if (bytes.size() != 4) return;
+
+        uint8_t header = bytes[0], high = bytes[1], low = bytes[2], csum = bytes[3];
+
+        if (header != 0xFF) return;
+        if (((header + high + low) & 0xFF) != csum) return;
+
+        float reading = ((high << 8) + low) / 1000.0f + id(calibration).state / 100.0f;
+
+        if (id(water_level) < 0.001f) {
+          id(water_level) = reading;
+        } else {
+          id(water_level) = (reading * ${reading_alpha}) + (id(water_level) * (1.0f - ${reading_alpha}));
+        }
+
+        ESP_LOGD("sensor", "reading=%0.4f water_level=%0.4f water_level_published=%0.4f", reading, id(water_level), id(water_level_published));
+
+        if (std::fabs(id(water_level) - id(water_level_published)) > ${reading_publish_delta}) {
+          id(water_level_sensor).publish_state(id(water_level));
+          id(water_level_published) = id(water_level);
+        }
