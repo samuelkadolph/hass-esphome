@@ -1,0 +1,273 @@
+substitutions:
+  name: sump-pump-monitor
+  friendly_name: Sump Pump Monitor
+  project_name: samuelkadolph.${name}
+  project_version: "0.1"
+
+  logging: DEBUG
+
+  api_encryption_key: !secret api_encryption_key
+  ota_password: !secret ota_password
+
+  wifi_ssid: !secret kadolph_devices_ssid
+  wifi_password: !secret kadolph_devices_pass
+  wifi_fallback_ssid: ${friendly_name}
+  wifi_fallback_password: !secret fallback_ap_pass
+
+  pump_rx_pin: GPIO19
+  pump_baud: 1200
+
+  CHARGER_2_ON: 2
+  CHARGER_3_ON: 3
+  CHARGER_4_ON: 4
+  CHARGER_5_OFF: 5
+  CHARGER_6_OFF: 6
+  CHARGER_7_OFF: 7
+  CHARGER_8_OFF: 8
+
+  SYSTEM_OK: 0
+  SYSTEM_BATTERY_FAILURE: 1
+  SYSTEM_POWER_FAILURE: 2
+
+  ALARM_NONE: 0
+  ALARM_PUMP: 1
+  ALARM_BATTERY_FUSE: 8
+
+api:
+  encryption:
+    key: ${api_encryption_key}
+
+captive_portal:
+
+esp32:
+  variant: esp32c6
+  framework:
+    type: esp-idf
+
+logger:
+  level: ${logging}
+
+ota:
+- platform: esphome
+  password: ${ota_password}
+
+wifi:
+  ssid: ${wifi_ssid}
+  password: ${wifi_password}
+
+  ap:
+    ssid: ${wifi_fallback_ssid}
+    password: ${wifi_fallback_password}
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  project:
+    name: ${project_name}
+    version: ${project_version}
+
+  includes:
+  - <format>
+  - <sstream>
+
+binary_sensor:
+- platform: template
+  id: battery_charging
+  name: Battery Charging
+  device_class: battery_charging
+
+- platform: template
+  id: battery_failure
+  name: Battery Failure
+  device_class: problem
+
+- platform: template
+  id: check_battery_fuse
+  name: Check Battery & Fuse
+  device_class: problem
+
+- platform: template
+  id: check_pump
+  name: Check Pump
+  device_class: problem
+
+- platform: template
+  id: power_failure
+  name: Power Failure
+  device_class: problem
+
+- platform: template
+  id: trouble
+  name: Trouble
+  device_class: problem
+
+- platform: gpio
+  name: Button
+  entity_category: diagnostic
+  disabled_by_default: true
+  pin:
+    ignore_strapping_warning: true
+    inverted: true
+    number: GPIO09
+
+button:
+- platform: restart
+  name: Restart
+  entity_category: diagnostic
+
+light:
+- platform: esp32_rmt_led_strip
+  name: Status LED
+  entity_category: diagnostic
+  chipset: WS2812
+  default_transition_length: 0s
+  disabled_by_default: true
+  num_leds: 1
+  pin:
+    ignore_strapping_warning: true
+    number: GPIO08
+  restore_mode: RESTORE_AND_OFF
+  rgb_order: RGB
+
+sensor:
+- platform: template
+  id: battery_voltage
+  name: Battery Voltage
+  accuracy_decimals: 2
+  device_class: voltage
+  icon: mdi:car-battery
+  state_class: measurement
+  unit_of_measurement: V
+
+- platform: wifi_signal
+  name: Signal Strength
+  entity_category: diagnostic
+  filters:
+  - sliding_window_moving_average:
+      send_every: 1
+      window_size: 5
+
+- platform: uptime
+  name: Uptime
+  entity_category: diagnostic
+
+text_sensor:
+- platform: template
+  id: alarm_state
+  name: Alarm State
+  disabled_by_default: true
+  entity_category: diagnostic
+  icon: mdi:progress-alert
+
+- platform: template
+  id: charge_state
+  name: Charge State
+  disabled_by_default: true
+  entity_category: diagnostic
+  icon: mdi:battery-charging-100
+
+- platform: template
+  id: system_state
+  name: System State
+  disabled_by_default: true
+  entity_category: diagnostic
+  icon: mdi:progress-check
+
+- platform: wifi_info
+  mac_address:
+    name: MAC Address
+    entity_category: diagnostic
+  ip_address:
+    name: IP Address
+    entity_category: diagnostic
+
+uart:
+  rx_pin: ${pump_rx_pin}
+  baud_rate: ${pump_baud}
+  debug:
+    direction: RX
+    dummy_receiver: true
+    after:
+      delimiter: '\n\r'
+    sequence:
+    - lambda: |-
+        std::string line(bytes.begin(), bytes.end());
+        std::istringstream stream(line);
+        uint16_t batt, charge, status;
+
+        if (!(stream >> batt >> charge >> status)) return;
+        ESP_LOGD("status", "battery=%d charge=%d status=%.2d", batt, charge, status);
+
+        float voltage = batt / 100.0f;
+        uint16_t system_status = status / 10 % 10, alarm_status = status % 10;
+
+        if (!(fabsf(voltage - id(battery_voltage).get_state()) < 0.01f)) {
+          id(battery_voltage).publish_state(voltage);
+        }
+
+        std::string charge_str;
+        bool charging;
+        switch(charge) {
+          case ${CHARGER_2_ON}:
+          case ${CHARGER_3_ON}:
+          case ${CHARGER_4_ON}: charge_str = {"Charging"}; charging = true; break;
+          case ${CHARGER_5_OFF}:
+          case ${CHARGER_6_OFF}:
+          case ${CHARGER_7_OFF}:
+          case ${CHARGER_8_OFF}: charge_str = {"Off"}; charging = false; break;
+          default: charge_str = std::format("Unknown ({})", charge); charging = false; break;
+        }
+        if (charge_str != id(charge_state).get_state()) {
+          id(charge_state).publish_state(charge_str);
+        }
+        if (charging != id(battery_charging).get_state()) {
+          id(battery_charging).publish_state(charging);
+        }
+
+        std::string system_str;
+        switch(system_status) {
+          case ${SYSTEM_OK}: system_str = {"OK"}; break;
+          case ${SYSTEM_POWER_FAILURE}: system_str = {"Power Failure"}; break;
+          case ${SYSTEM_BATTERY_FAILURE}: system_str = {"Battery Failure"}; break;
+          default: system_str = std::format("Unknown ({})", system_status); break;
+        }
+        if (system_str != id(system_state).get_state()) {
+          id(system_state).publish_state(system_str);
+        }
+
+        std::string alarm_str;
+        switch(alarm_status) {
+          case ${ALARM_NONE}: alarm_str = {"OK"}; break;
+          case ${ALARM_PUMP}: alarm_str = {"Check Pump"}; break;
+          case ${ALARM_BATTERY_FUSE}: alarm_str = {"Check Battery & Fuse"}; break;
+          case ${ALARM_PUMP} | ${ALARM_BATTERY_FUSE}: alarm_str = {"Check Pump, Battery & Fuse"}; break;
+          default: alarm_str = std::format("Unknown ({})", alarm_status); break;
+        }
+        if (alarm_str != id(alarm_state).get_state()) {
+          id(alarm_state).publish_state(alarm_str);
+        }
+
+        bool battery_fail = (system_status & ${SYSTEM_BATTERY_FAILURE}) == ${SYSTEM_BATTERY_FAILURE};
+        if (battery_fail != id(battery_failure).get_state() || !id(battery_failure).has_state()) {
+          id(battery_failure).publish_state(battery_fail);
+        }
+
+        bool power_fail = (system_status & ${SYSTEM_POWER_FAILURE}) == ${SYSTEM_POWER_FAILURE};
+        if (power_fail != id(power_failure).get_state() || !id(power_failure).has_state()) {
+          id(power_failure).publish_state(power_fail);
+        }
+
+        bool pump_bit = (alarm_status & ${ALARM_PUMP}) == ${ALARM_PUMP};
+        if (pump_bit != id(check_pump).get_state() || !id(check_pump).has_state()) {
+          id(check_pump).publish_state(pump_bit);
+        }
+
+        bool battery_bit = (alarm_status & ${ALARM_BATTERY_FUSE}) == ${ALARM_BATTERY_FUSE};
+        if (battery_bit != id(check_battery_fuse).get_state() || !id(check_battery_fuse).has_state()) {
+          id(check_battery_fuse).publish_state(battery_bit);
+        }
+
+        bool any_fail = !(system_status == 0 && alarm_status == 0);
+        if (any_fail != id(trouble).get_state() || !id(trouble).has_state()) {
+          id(trouble).publish_state(any_fail);
+        }
