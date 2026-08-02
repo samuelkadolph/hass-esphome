@@ -1,0 +1,137 @@
+substitutions:
+  name: vi-logger
+  friendly_name: VI Logger
+  project_name: samuelkadolph.${name}
+  project_version: "0.1"
+
+  logging: DEBUG
+
+  api_encryption_key: !secret api_encryption_key
+  ota_password: !secret ota_password
+
+  wifi_ssid: !secret kadolph_devices_ssid
+  wifi_password: !secret kadolph_devices_pass
+  wifi_fallback_ssid: ${friendly_name}
+  wifi_fallback_password: !secret fallback_ap_pass
+
+  scl_pin: GPIO03
+  sda_pin: GPIO02
+
+  ina226_address: 0x40
+  shunt_resistance: 0.0222 ohm
+  max_current: 4.0 A
+
+api:
+  encryption:
+    key: ${api_encryption_key}
+
+captive_portal:
+
+esp32:
+  variant: esp32c6
+  framework:
+    type: esp-idf
+
+logger:
+  level: ${logging}
+
+ota:
+- platform: esphome
+  password: ${ota_password}
+
+wifi:
+  ssid: ${wifi_ssid}
+  password: ${wifi_password}
+
+  ap:
+    ssid: ${wifi_fallback_ssid}
+    password: ${wifi_fallback_password}
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  project:
+    name: ${project_name}
+    version: ${project_version}
+
+binary_sensor:
+- platform: gpio
+  name: Button
+  entity_category: diagnostic
+  disabled_by_default: true
+  pin:
+    ignore_strapping_warning: true
+    inverted: true
+    number: GPIO09
+
+button:
+- platform: restart
+  name: Restart
+  entity_category: diagnostic
+
+i2c:
+  sda: ${sda_pin}
+  scl: ${scl_pin}
+  scan: true
+
+light:
+- platform: esp32_rmt_led_strip
+  name: Status LED
+  entity_category: diagnostic
+  chipset: WS2812
+  default_transition_length: 0s
+  disabled_by_default: true
+  num_leds: 1
+  pin:
+    ignore_strapping_warning: true
+    number: GPIO08
+  restore_mode: RESTORE_AND_OFF
+  rgb_order: RGB
+
+sensor:
+- platform: ina226
+  address: ${ina226_address}
+  adc_averaging: 16
+  adc_time: 1100us
+  max_current: ${max_current}
+  shunt_resistance: ${shunt_resistance}
+  update_interval: 5s
+  bus_voltage:
+    name: Voltage
+    device_class: voltage
+    icon: mdi:alpha-v-box
+    state_class: measurement
+    unit_of_measurement: V
+  current:
+    name: Current
+    device_class: current
+    icon: mdi:alpha-a-box
+    state_class: measurement
+    unit_of_measurement: A
+  power:
+    name: Power
+    device_class: power
+    icon: mdi:alpha-p-box
+    state_class: measurement
+    unit_of_measurement: W
+
+- platform: wifi_signal
+  name: Signal Strength
+  entity_category: diagnostic
+  filters:
+  - sliding_window_moving_average:
+      send_every: 5
+      window_size: 5
+
+- platform: uptime
+  name: Uptime
+  entity_category: diagnostic
+
+text_sensor:
+- platform: wifi_info
+  mac_address:
+    name: MAC Address
+    entity_category: diagnostic
+  ip_address:
+    name: IP Address
+    entity_category: diagnostic
