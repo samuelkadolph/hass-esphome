@@ -1,13 +1,24 @@
 substitutions:
-  name: "esp32s3-test"
-  friendly_name: "ESP32S3 Test"
+  name: esp32s3-test
+  friendly_name: ESP32S3 Test
+  project_name: samuelkadolph.${name}
+  project_version: "0.1"
 
-esphome:
-  name: "${name}"
-  friendly_name: "${friendly_name}"
-  project:
-    name: "samuelkadolph.${name}"
-    version: "0.1"
+  logging: DEBUG
+
+  api_encryption_key: !secret api_encryption_key
+  ota_password: !secret ota_password
+
+  wifi_ssid: !secret kadolph_devices_ssid
+  wifi_password: !secret kadolph_devices_pass
+  wifi_fallback_ssid: ${friendly_name}
+  wifi_fallback_password: !secret fallback_ap_pass
+
+api:
+  encryption:
+    key: ${api_encryption_key}
+
+captive_portal:
 
 esp32:
   variant: esp32s3
@@ -15,29 +26,31 @@ esp32:
     type: esp-idf
 
 logger:
-  level: DEBUG
+  level: ${logging}
 
 ota:
 - platform: esphome
-  password: !secret ota_password
+  password: ${ota_password}
 
 wifi:
-  ssid: !secret kadolph_devices_ssid
-  password: !secret kadolph_devices_pass
+  ssid: ${wifi_ssid}
+  password: ${wifi_password}
 
   ap:
-    ssid: "${friendly_name}"
-    password: !secret fallback_ap_pass
+    ssid: ${wifi_fallback_ssid}
+    password: ${wifi_fallback_password}
 
-captive_portal:
-
-api:
-  encryption:
-    key: !secret esp32s3_test_key
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  project:
+    name: ${project_name}
+    version: ${project_version}
 
 binary_sensor:
 - platform: gpio
-  name: "Button"
+  name: Button
+  disabled_by_default: true
   entity_category: diagnostic
   pin:
     ignore_strapping_warning: true
@@ -46,15 +59,16 @@ binary_sensor:
 
 button:
 - platform: restart
-  name: "Restart"
+  name: Restart
   entity_category: diagnostic
 
 light:
 - platform: esp32_rmt_led_strip
-  name: "Status LED"
-  entity_category: diagnostic
+  name: Status LED
   chipset: WS2812
   default_transition_length: 0s
+  disabled_by_default: true
+  entity_category: diagnostic
   num_leds: 1
   pin: GPIO21
   restore_mode: RESTORE_AND_OFF
@@ -62,21 +76,22 @@ light:
 
 sensor:
 - platform: wifi_signal
-  name: "Signal Strength"
+  name: Signal Strength
   entity_category: diagnostic
   filters:
   - sliding_window_moving_average:
-      window_size: 4
-      send_every: 4
+      send_every: 5
+      window_size: 5
+
 - platform: uptime
-  name: "Uptime"
+  name: Uptime
   entity_category: diagnostic
 
 text_sensor:
 - platform: wifi_info
   mac_address:
-    name: "MAC Address"
+    name: MAC Address
     entity_category: diagnostic
   ip_address:
-    name: "IP Address"
+    name: IP Address
     entity_category: diagnostic
