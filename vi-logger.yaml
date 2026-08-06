@@ -19,7 +19,7 @@ substitutions:
 
   ina226_address: 0x40
   shunt_resistance: 0.0222 ohm
-  max_current: 4.0 A
+  max_current: 3.7 A
 
 api:
   encryption:
@@ -65,6 +65,11 @@ binary_sensor:
     number: GPIO09
 
 button:
+- platform: factory_reset
+  name: Factory Reset
+  disabled_by_default: true
+  entity_category: diagnostic
+
 - platform: restart
   name: Restart
   entity_category: diagnostic
@@ -74,18 +79,33 @@ i2c:
   scl: ${scl_pin}
   scan: true
 
+interval:
+- interval: 2000ms
+  then:
+  - lambda: |-
+      if (esphome::api::global_api_server->is_connected_with_state_subscription()) {
+        id(status_led).turn_on().set_flash_length(1000).set_brightness(0.3).set_rgb(0.0, 1.0, 0.0).perform();
+      } else if (esphome::wifi::global_wifi_component->is_connected()) {
+        id(status_led).turn_on().set_flash_length(1000).set_brightness(0.4).set_rgb(0.0, 0.0, 1.0).perform();
+      } else if (esphome::wifi::global_wifi_component->is_ap_active()) {
+        id(status_led).turn_on().set_flash_length(1000).set_brightness(0.4).set_rgb(0.5, 0.0, 0.5).perform();
+      } else {
+        id(status_led).turn_on().set_flash_length(1000).set_brightness(0.4).set_rgb(1.0, 0.0, 0.0).perform();
+      }
+
 light:
 - platform: esp32_rmt_led_strip
-  name: Status LED
-  entity_category: diagnostic
+  id: status_led
   chipset: WS2812
-  default_transition_length: 0s
-  disabled_by_default: true
+  default_transition_length: 0ms
+  initial_state:
+    blue: 0.0
+    green: 0.0
+    red: 0.0
   num_leds: 1
   pin:
     ignore_strapping_warning: true
     number: GPIO08
-  restore_mode: RESTORE_AND_OFF
   rgb_order: RGB
 
 sensor:
