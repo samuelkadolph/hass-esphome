@@ -6,14 +6,6 @@ substitutions:
 
   logging: DEBUG
 
-  api_encryption_key: !secret api_encryption_key
-  ota_password: !secret ota_password
-
-  wifi_ssid: !secret kadolph_devices_ssid
-  wifi_password: !secret kadolph_devices_pass
-  wifi_fallback_ssid: ${friendly_name}
-  wifi_fallback_password: !secret fallback_ap_pass
-
   scl_pin: GPIO03
   sda_pin: GPIO02
 
@@ -23,7 +15,10 @@ substitutions:
 
 api:
   encryption:
-    key: ${api_encryption_key}
+    key: !secret api_encryption_key
+
+  on_client_connected: [ script.execute: set_status_led ]
+  on_client_disconnected: [ script.execute: set_status_led ]
 
 captive_portal:
 
@@ -37,39 +32,40 @@ logger:
 
 ota:
 - platform: esphome
-  password: ${ota_password}
+  password: !secret ota_password
 
 wifi:
-  ssid: ${wifi_ssid}
-  password: ${wifi_password}
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
 
   ap:
-    ssid: ${wifi_fallback_ssid}
-    password: ${wifi_fallback_password}
+    ssid: ${friendly_name}
+    password: !secret fallback_password
+
+  on_connect: [ script.execute: set_status_led ]
+  on_disconnect: [ script.execute: set_status_led ]
 
 esphome:
   name: ${name}
   friendly_name: ${friendly_name}
+
   project:
     name: ${project_name}
     version: ${project_version}
 
+  on_boot: [ script.execute: set_status_led ]
+
 binary_sensor:
 - platform: gpio
   name: Button
-  entity_category: diagnostic
   disabled_by_default: true
+  entity_category: diagnostic
   pin:
     ignore_strapping_warning: true
     inverted: true
     number: GPIO09
 
 button:
-- platform: factory_reset
-  name: Factory Reset
-  disabled_by_default: true
-  entity_category: diagnostic
-
 - platform: restart
   name: Restart
   entity_category: diagnostic
@@ -80,33 +76,34 @@ i2c:
   scan: true
 
 interval:
-- interval: 2000ms
-  then:
-  - lambda: |-
-      if (esphome::api::global_api_server->is_connected_with_state_subscription()) {
-        id(status_led).turn_on().set_flash_length(1000).set_brightness(0.3).set_rgb(0.0, 1.0, 0.0).perform();
-      } else if (esphome::wifi::global_wifi_component->is_connected()) {
-        id(status_led).turn_on().set_flash_length(1000).set_brightness(0.4).set_rgb(0.0, 0.0, 1.0).perform();
-      } else if (esphome::wifi::global_wifi_component->is_ap_active()) {
-        id(status_led).turn_on().set_flash_length(1000).set_brightness(0.4).set_rgb(0.5, 0.0, 0.5).perform();
-      } else {
-        id(status_led).turn_on().set_flash_length(1000).set_brightness(0.4).set_rgb(1.0, 0.0, 0.0).perform();
-      }
+- interval: 1s
+  then: [ script.execute: set_status_led ]
 
 light:
 - platform: esp32_rmt_led_strip
   id: status_led
   chipset: WS2812
   default_transition_length: 0ms
-  initial_state:
-    blue: 0.0
-    green: 0.0
-    red: 0.0
   num_leds: 1
   pin:
     ignore_strapping_warning: true
     number: GPIO08
   rgb_order: RGB
+  rmt_symbols: 48
+
+script:
+- id: set_status_led
+  then:
+  - lambda: |-
+      if (api::global_api_server->is_connected()) {
+        id(status_led).turn_on().set_brightness(0.2).set_rgb(0.0, 1.0, 0.0).perform();
+      } else if (wifi::global_wifi_component->is_connected()) {
+        id(status_led).turn_on().set_brightness(0.3).set_rgb(0.0, 0.0, 1.0).perform();
+      } else if (wifi::global_wifi_component->is_ap_active()) {
+        id(status_led).turn_on().set_brightness(0.3).set_rgb(0.5, 0.0, 0.5).perform();
+      } else {
+        id(status_led).turn_on().set_brightness(0.3).set_rgb(1.0, 0.0, 0.0).perform();
+      }
 
 sensor:
 - platform: ina226
