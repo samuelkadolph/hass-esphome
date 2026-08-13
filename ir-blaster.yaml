@@ -54,8 +54,8 @@ esphome:
 binary_sensor:
 - platform: gpio
   name: Button
-  entity_category: diagnostic
   disabled_by_default: true
+  entity_category: diagnostic
   pin:
     ignore_strapping_warning: true
     inverted: true
