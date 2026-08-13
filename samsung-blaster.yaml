@@ -8,8 +8,6 @@ substitutions:
 
   ir_pin: GPIO21
   power_on_command: 0xE0E09966
-  power_off_command: 0xE0E019E6
-  hdmi1_command: 0xE0E09768
 
 api:
   encryption:
@@ -57,24 +55,14 @@ esphome:
 binary_sensor:
 - platform: gpio
   name: Button
-  entity_category: diagnostic
   disabled_by_default: true
+  entity_category: diagnostic
   pin:
     ignore_strapping_warning: true
     inverted: true
     number: GPIO09
 
 button:
-- platform: template
-  name: HDMI1
-  on_press:
-  - remote_transmitter.transmit_samsung: { data: "${hdmi1_command}" }
-
-- platform: template
-  name: Power Off
-  on_press:
-  - remote_transmitter.transmit_samsung: { data: "${power_off_command}" }
-
 - platform: template
   name: Power On
   on_press:
