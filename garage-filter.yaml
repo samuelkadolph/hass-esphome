@@ -1,13 +1,27 @@
 substitutions:
   name: "garage-filter"
   friendly_name: "Garage Filter"
+  project_name: samuelkadolph.${name}
+  project_version: "0.1"
 
-esphome:
-  name: "${name}"
-  friendly_name: "${friendly_name}"
-  project:
-    name: "samuelkadolph.${name}"
-    version: "0.1"
+  logging: DEBUG
+
+  ir_address: 0xFF00
+  ir_pin: GPIO07
+  ir_repeat_delay: 50ms
+
+  off_command: 0x6798
+  timer_command: 0xC738
+  on_speed_command: 0xFD02
+
+api:
+  encryption:
+    key: !secret garage_filter_key
+
+  on_client_connected: [ script.execute: set_status_led ]
+  on_client_disconnected: [ script.execute: set_status_led ]
+
+captive_portal:
 
 esp32:
   variant: esp32s3
@@ -15,39 +29,47 @@ esp32:
     type: esp-idf
 
 logger:
-  level: DEBUG
+  level: ${logging}
 
 ota:
 - platform: esphome
   password: !secret ota_password
 
 wifi:
-  ssid: !secret kadolph_devices_ssid
-  password: !secret kadolph_devices_pass
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
 
   ap:
-    ssid: "${friendly_name}"
-    password: !secret fallback_ap_pass
+    ssid: ${friendly_name}
+    password: !secret fallback_password
 
-captive_portal:
+  on_connect: [ script.execute: set_status_led ]
+  on_disconnect: [ script.execute: set_status_led ]
 
-api:
-  encryption:
-    key: !secret garage_filter_key
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+
+  project:
+    name: ${project_name}
+    version: ${project_version}
+
+  on_boot: [ script.execute: set_status_led ]
 
 globals:
-- id: previous_speed
-  type: int
-  initial_value: "1"
-  restore_value: true
 - id: speed_direction
   type: int
   initial_value: "0"
   restore_value: true
+- id: speed_previous
+  type: int
+  initial_value: "1"
+  restore_value: true
 
 binary_sensor:
 - platform: gpio
-  name: "Button"
+  name: Button
+  disabled_by_default: true
   entity_category: diagnostic
   pin:
     inverted: true
@@ -55,115 +77,142 @@ binary_sensor:
 
 button:
 - platform: template
-  id: remote_off
-  name: "Remote OFF"
+  name: Remote OFF
   entity_category: diagnostic
   on_press:
   - script.execute: ir_send_off
 
 - platform: template
-  id: remote_timer
-  name: "Remote TIMER"
+  name: Remote ON/SPEED
+  entity_category: diagnostic
+  on_press:
+  - script.execute: ir_send_on_speed
+
+- platform: template
+  name: Remote TIMER
   entity_category: diagnostic
   on_press:
   - script.execute: ir_send_timer
 
-- platform: template
-  id: remote_on_speed
-  name: "Remote ON/SPEED"
-  entity_category: diagnostic
-  on_press:
-  - script.execute: ir_send_on_speed
-
 fan:
 - platform: template
   name: None
-
   restore_mode: RESTORE_DEFAULT_OFF
   speed_count: 3
 
+  on_speed_set:
+  - lambda: |-
+      static int matrix[2][3][3] = {
+        { { 0x00, 0x11, 0x12 }, { 0x01, 0x00, 0x13 }, { 0x02, 0x01, 0x00 } },
+        { { 0x00, 0x01, 0x02 }, { 0x13, 0x00, 0x01 }, { 0x12, 0x11, 0x00 } }
+      };
+      int count = matrix[id(speed_direction)][id(speed_previous) - 1][x - 1];
+
+      if (count & 0x10) {
+        id(speed_direction) = !id(speed_direction);
+      }
+
+      id(ir_send_on_speed_multi)->execute(count & 0x0F);
+      id(speed_previous) = x;
+
   on_turn_off:
-  - logger.log: { level: INFO, format: "Fan turned off" }
   - script.execute: ir_send_off
   - lambda: id(speed_direction) = 0;
 
   on_turn_on:
-  - logger.log: { level: INFO, format: "Fan turned on" }
   - script.execute: ir_send_on_speed
 
-  on_speed_set:
-  - logger.log: { level: INFO, format: "Fan speed set to %d", args: [x] }
-  - lambda: |-
-      static int matrix[2][3][3] = { { { 0x00, 0x11, 0x12 }, { 0x01, 0x00, 0x13 }, { 0x02, 0x01, 0x00 } }, { { 0x00, 0x01, 0x02 }, { 0x13, 0x00, 0x01 }, { 0x12, 0x11, 0x00} } };
+interval:
+- interval: 1s
+  then: [ script.execute: set_status_led ]
 
-      auto count = matrix[id(speed_direction)][id(previous_speed) - 1][x - 1];
-      if ((count & 0x10) == 0x10) {
-        count -= 0x10;
-        ESP_LOGD("main", "dir=%d flip=1 prev=%d speed=%d count=%d", id(speed_direction), id(previous_speed), x, count);
-        id(speed_direction) = !id(speed_direction);
-      } else {
-        ESP_LOGD("main", "dir=%d flip=0 prev=%d speed=%d count=%d", id(speed_direction), id(previous_speed), x, count);
-      }
-
-      id(ir_send_multiple_on_speed)->execute(count);
-      id(previous_speed) = x;
+light:
+- platform: esp32_rmt_led_strip
+  id: status_led
+  chipset: WS2812
+  default_transition_length: 0ms
+  num_leds: 1
+  pin: GPIO21
+  rgb_order: RGB
+  rmt_symbols: 48
 
 remote_transmitter:
   carrier_duty_percent: 50%
-  pin: GPIO07
+  non_blocking: true
+  pin: ${ir_pin}
+  rmt_symbols: 48
+
+  on_transmit:
+  - light.turn_off: { id: status_led }
+  - delay: 50ms
+  - light.turn_on: { id: status_led, brightness: 0.6, red: 1.0, green: 0.0, blue: 0.0 }
+  - delay: 50ms
+  - light.turn_off: { id: status_led }
+  - delay: 50ms
+  - light.turn_on: { id: status_led }
+  - delay: 50ms
+  - light.turn_off: { id: status_led }
+  - delay: 50ms
+  - script.execute: set_status_led
 
 script:
 - id: ir_send_off
   then:
   - remote_transmitter.transmit_nec:
-      address: 0xFF00
-      command: 0x6798
-      command_repeats: 1
+      address: ${ir_address}
+      command: ${off_command}
+
+- id: ir_send_on_speed
+  then:
+  - script.execute: { id: ir_send_on_speed_multi, count: 1 }
+
+- id: ir_send_on_speed_multi
+  parameters: { count: int }
+  then:
+  - remote_transmitter.transmit_nec:
+      address: ${ir_address}
+      command: ${on_speed_command}
+      repeat:
+        times: !lambda return count;
+        wait_time: ${ir_repeat_delay}
 
 - id: ir_send_timer
   then:
   - remote_transmitter.transmit_nec:
-      address: 0xFF00
-      command: 0xC738
-      command_repeats: 1
+      address: ${ir_address}
+      command: ${timer_command}
 
-- id: ir_send_on_speed
+- id: set_status_led
   then:
-  - remote_transmitter.transmit_nec:
-      address: 0xFF00
-      command: 0xFD02
-      command_repeats: 1
-
-- id: ir_send_multiple_on_speed
-  parameters:
-    count: int
-  then:
-  - remote_transmitter.transmit_nec:
-      address: 0xFF00
-      command: 0xFD02
-      command_repeats: 1
-      repeat:
-        times: !lambda return count;
-        wait_time: 50ms
+  - lambda: |-
+      if (api::global_api_server->is_connected()) {
+        id(status_led).turn_on().set_brightness(0.2).set_rgb(0.0, 1.0, 0.0).perform();
+      } else if (wifi::global_wifi_component->is_connected()) {
+        id(status_led).turn_on().set_brightness(0.3).set_rgb(0.0, 0.0, 1.0).perform();
+      } else if (wifi::global_wifi_component->is_ap_active()) {
+        id(status_led).turn_on().set_brightness(0.3).set_rgb(0.5, 0.0, 0.5).perform();
+      } else {
+        id(status_led).turn_on().set_brightness(0.3).set_rgb(1.0, 0.0, 0.0).perform();
+      }
 
 sensor:
 - platform: wifi_signal
-  name: "Signal Strength"
+  name: Signal Strength
   entity_category: diagnostic
   filters:
   - sliding_window_moving_average:
-      window_size: 4
-      send_every: 4
+      window_size: 5
+      send_every: 5
 
 - platform: uptime
-  name: "Uptime"
+  name: Uptime
   entity_category: diagnostic
 
 text_sensor:
 - platform: wifi_info
   mac_address:
-    name: "MAC Address"
+    name: MAC Address
     entity_category: diagnostic
   ip_address:
-    name: "IP Address"
+    name: IP Address
     entity_category: diagnostic
