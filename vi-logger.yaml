@@ -82,13 +82,13 @@ interval:
 light:
 - platform: esp32_rmt_led_strip
   id: status_led
+  channel_colors: RGB
   chipset: WS2812
   default_transition_length: 0ms
   num_leds: 1
   pin:
     ignore_strapping_warning: true
     number: GPIO08
-  rgb_order: RGB
   rmt_symbols: 48
 
 script:
